@@ -2,7 +2,7 @@ const _ = require('lodash');
 const fs = require('fs');
 const request = require('request-promise');
 const { Registration } = require('@polkadot/types/interfaces');
-const identities = require('./identities').default;
+// const identities = require('./identities').default;
 const subs = require('./subsOf').default;
 const supers = require('./superOf').default;
 
@@ -113,7 +113,7 @@ export const scrape = async (api) => {
     prev[hash] = curr;
     return prev;
   }, {});
-  const ids = identities();
+  const ids = []; // identities();
   const subsOf = subs();
   const superOfs = supers();
 

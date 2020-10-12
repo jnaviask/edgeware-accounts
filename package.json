@@ -14,12 +14,12 @@
     "create-types": "ts-node -P ./tsconfig.json src/index.ts --create"
   },
   "dependencies": {
-    "@polkadot/api": "^1.21.1",
+    "@edgeware/node-types": "^3.0.4",
+    "@polkadot/api": "^2.0.1",
     "commander": "^5.1.0",
-    "edgeware-node-types": "^2.3.0",
     "lodash": "^4.17.20",
     "request": "^2.88.2",
     "request-promise": "^4.2.6",
-    "rxjs": "^6.5.5"
+    "rxjs": "^6.6.3"
   }
 }

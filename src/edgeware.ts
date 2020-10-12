@@ -1,36 +1,19 @@
 import { Keyring, ApiRx, WsProvider } from '@polkadot/api';
-import * as edgewareDefinitions from 'edgeware-node-types/dist/definitions';
-import { switchMap } from 'rxjs/operators';
+import { Option } from '@polkadot/types';
+import { Hash } from '@polkadot/types/interfaces';
+import { Mainnet } from '@edgeware/node-types';
+import { switchMap, first } from 'rxjs/operators';
 import { of } from 'rxjs';
 
 import { SignedBlock } from '@polkadot/types/interfaces/runtime';
 import { Call, AccountId } from '@polkadot/types/interfaces';
 const fs = require('fs');
 
-const types = Object
-  .values(edgewareDefinitions)
-  .reduce((res, { types }): object => ({ ...res, ...types }), {});
-
 export const mainnet = 'ws://mainnet1.edgewa.re:9944';;
 
 export const eApi = (url) => new ApiRx({
   provider : new WsProvider(url),
-  types: {
-    ...types,
-    // aliases that don't do well as part of interfaces
-    'voting::VoteType': 'VoteType',
-    'voting::TallyType': 'TallyType',
-    // chain-specific overrides
-    Address: 'GenericAddress',
-    Keys: 'SessionKeys4',
-    StakingLedger: 'StakingLedgerTo223',
-    Votes: 'VotesTo230',
-    ReferendumInfo: 'ReferendumInfoTo239',
-    Weight: 'u32',
-    Balance2: 'Balance',
-  },
-  // override duplicate type name
-  typesAlias: { voting: { Tally: 'VotingTally' } },
+  ...Mainnet
 });
 
 const parseAccountFromArgs = (args: Call) => {
@@ -88,6 +71,30 @@ export const pollAllAccounts = async (api: ApiRx, cb: Function, top: number, low
     if (i <= low) {
       break;
     }
+  }
+}
+
+// TODO: write a binary search algorithm to determine the block when a storage item was
+//    first set
+export const queryStorage = async (api: ApiRx, key, block?) => {
+  // TODO: remove these hardcodes / update the logging
+  console.log(`Querying key ${key} at block ${block || 'latest'}.`);
+  block = 3137500;
+  const endBlock = 3140000;
+  const endHash = await api.rpc.chain.getBlockHash(endBlock).pipe(first()).toPromise();
+  let hash;
+  if (block) {
+    hash = await api.rpc.chain.getBlockHash(block).pipe(first()).toPromise();
+  }
+  // const result = await api.rpc.state.getStorage<Option<any>>(key, hash).pipe(first()).toPromise();
+  // console.log(`Got value: ${result.isSome ? result.unwrap() : 'None'}`);
+  const result: any = await api.rpc.state.queryStorage([ key ], hash, endHash).pipe(first()).toPromise();
+  for (const [ hash, vals ] of result) {
+    const updatedBlock = await api.rpc.chain.getBlock(hash).pipe(first()).toPromise();
+    const n = +updatedBlock.block.header.number;
+    console.log(`Block ${n} (${hash}): ${vals.map((val) => (val as Option<any>).unwrapOr('None'))}`);
+    const extrinsics = updatedBlock.block.extrinsics.toHuman(false);
+    console.log(`Extrinsics: ${JSON.stringify(extrinsics, null, 2)}\n`);
   }
 }
 

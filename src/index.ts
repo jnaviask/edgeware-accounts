@@ -1,5 +1,5 @@
 import { program, option } from 'commander';
-import { switchMap } from 'rxjs/operators';
+import { switchMap, first } from 'rxjs/operators';
 import { ApiRx } from '@polkadot/api';
 import { Address } from '@polkadot/types/interfaces';
 import { of } from 'rxjs';
@@ -12,6 +12,7 @@ import {
   genesisAccounts,
   testnetAccounts,
   queryBalances,
+  queryStorage,
 } from './edgeware';
 import scrapeIdentities, { scrape } from './events';
 
@@ -26,6 +27,8 @@ program
   .option('-p, --poll', 'To poll to the chain head')
   .option('-c, --create', 'Create types from file')
   .option('-q, --queryBalances', 'Query balances')
+  .option('-k, --key <key', 'Query storage key')
+  .option('-b, --block <block>', 'Block to query storage at')
   .option('--low <block>', 'Low block to poll until')
   .option('-t, --timeout <timeout>', 'Timeout from subscribing from the chain head')
   .option('-i, --identities', 'Flag to scrape identities into separate file')
@@ -65,16 +68,20 @@ const start = (options: {
   low?: number,
   queryBalances?: any,
   create?: any,
+  key?: any,
+  block?: any,
 }) => {
   if (options.url === 'edgeware') options.url = mainnet
   const api = eApi(options.url || local);
-  api.isReady.pipe(
-    switchMap((api: ApiRx) => of(api)),
-  ).subscribe(async (api: ApiRx) => {
+  console.log('Waiting for API to connect');
+  api.isReady.pipe(first()).subscribe(async (api: ApiRx) => {
+    console.log('Querying highest block...');
     const highest = (await api.rpc.chain.getBlock().toPromise())
       .block.header.number.toNumber();
 
-    if (options.scrape) {
+    if (options.key) {
+      await queryStorage(api, options.key, options.block);
+    } else if (options.scrape) {
       await scrape(api);
     } else if (options.create) {
       let accounts = [];
@@ -97,7 +104,7 @@ const start = (options: {
       await scrapeIdentities(api);
     } else {
       if (options.poll) {
-        await pollAllAccounts(api, cb, highest, options.low);
+        await pollAllAccounts(api, cb, highest, options.low || 0);
       }
   
       if (options.subscribe) {
@@ -132,14 +139,4 @@ const writeToFile = (api: ApiRx) => {
   fs.writeFileSync('./accounts.txt', api.createType('Vec<AccountId>', arr).toU8a().toString(), 'utf8');
 };
 
-start({
-  url: programOptions.url,
-  subscribe: programOptions.subscribe,
-  poll: programOptions.poll,
-  timeout: programOptions.timeout,
-  events: programOptions.events,
-  scrape: programOptions.scrape,
-  low: programOptions.low || 0,
-  queryBalances: programOptions.queryBalances,
-  create: programOptions.create,
-});
+start(programOptions);
