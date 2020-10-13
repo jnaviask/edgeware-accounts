@@ -4,6 +4,8 @@ import { Hash } from '@polkadot/types/interfaces';
 import { Mainnet } from '@edgeware/node-types';
 import { switchMap, first } from 'rxjs/operators';
 import { of } from 'rxjs';
+import { xxhashAsHex } from '@polkadot/util-crypto';
+import { u8aToU8a, u8aToHex } from '@polkadot/util';
 
 import { SignedBlock } from '@polkadot/types/interfaces/runtime';
 import { Call, AccountId } from '@polkadot/types/interfaces';
@@ -13,7 +15,19 @@ export const mainnet = 'ws://mainnet1.edgewa.re:9944';;
 
 export const eApi = (url) => new ApiRx({
   provider : new WsProvider(url),
-  ...Mainnet
+  types: {
+    // Address: 'GenericAddress',
+    // Keys: 'SessionKeys4',
+    // StakingLedger: 'StakingLedgerTo240',
+    // Votes: 'VotesTo230',
+    // ReferendumInfo: 'ReferendumInfoTo239',
+    // Weight: 'u32',
+    // RewardDestination: 'RewardDestinationTo257',
+    // DispatchInfo: 'DispatchInfoTo244',
+    // OpenTip: 'OpenTipTo225',
+    ...Mainnet.types,
+  },
+  typesAlias: Mainnet.typesAlias,
 });
 
 const parseAccountFromArgs = (args: Call) => {
@@ -74,28 +88,126 @@ export const pollAllAccounts = async (api: ApiRx, cb: Function, top: number, low
   }
 }
 
+export const findStorageWriteBlock = async (api: ApiRx, key: string, startBlock: number, endBlock: number, currentBlock?: number): Promise<number> => {
+  if (startBlock > endBlock) throw new Error('invalid range');
+  if (startBlock === endBlock) return -1;
+  if (!currentBlock) currentBlock = startBlock;
+  // console.log('Querying block #' + currentBlock);
+  const hash = await api.rpc.chain.getBlockHash(currentBlock).pipe(first()).toPromise();
+  const storage = await api.rpc.state.getStorage<Option<any>>(key, hash).pipe(first()).toPromise();
+  if (storage.isSome) {
+    if (currentBlock === endBlock) return currentBlock;
+    return findStorageWriteBlock(api, key, startBlock, currentBlock, startBlock + Math.floor((currentBlock - startBlock) / 2));
+  } else {
+    return findStorageWriteBlock(api, key, currentBlock, endBlock, currentBlock + Math.ceil((endBlock - currentBlock) / 2));
+  }
+}
+
 // TODO: write a binary search algorithm to determine the block when a storage item was
 //    first set
 export const queryStorage = async (api: ApiRx, key, block?) => {
-  // TODO: remove these hardcodes / update the logging
-  console.log(`Querying key ${key} at block ${block || 'latest'}.`);
-  block = 3137500;
-  const endBlock = 3140000;
-  const endHash = await api.rpc.chain.getBlockHash(endBlock).pipe(first()).toPromise();
-  let hash;
-  if (block) {
-    hash = await api.rpc.chain.getBlockHash(block).pipe(first()).toPromise();
+  const keys = [
+    "0xc2261276cc9d1f8598ea4b6a74b15c2fb99d880ec681799c0cf30e8886371da9004ee3bb7c9aaeea2beca8732a7c96f4925668f7cd0815e9995b5e011d2fc16e",
+    "0xc2261276cc9d1f8598ea4b6a74b15c2fb99d880ec681799c0cf30e8886371da90057e947689813af65357e9c72f2bc7e29433851162b9240fc7f3401cb978738",
+    "0xc2261276cc9d1f8598ea4b6a74b15c2fb99d880ec681799c0cf30e8886371da9075491ea6df03ab0ca0af2aa0f398ddc394b0bd1ac569f305fe0f73c914d8a89",
+    "0xc2261276cc9d1f8598ea4b6a74b15c2fb99d880ec681799c0cf30e8886371da90a41b262709e64dc9956e5e93db4a7e217db6ccff10125e3fe2e561a910e0195",
+    "0xc2261276cc9d1f8598ea4b6a74b15c2fb99d880ec681799c0cf30e8886371da90b59bc7950734874602c61fce4d52f3144cb0ff28042123e2c3aa7c4ff612601",
+    "0xc2261276cc9d1f8598ea4b6a74b15c2fb99d880ec681799c0cf30e8886371da90e4d7f2c4c7a39cce0d2fab3e858e6509b73cc4bf9709be0500b9c0302d3b53c",
+    "0xc2261276cc9d1f8598ea4b6a74b15c2fb99d880ec681799c0cf30e8886371da90eac5cb6faa1d33085ef99ab53c6074e41f4090683f39db939517054fb5f88e9",
+    "0xc2261276cc9d1f8598ea4b6a74b15c2fb99d880ec681799c0cf30e8886371da9144d09d98cc6bc9df6f5f5609e32a8c70d1a9621cef8370078eb1a67491b2d9f",
+    "0xc2261276cc9d1f8598ea4b6a74b15c2fb99d880ec681799c0cf30e8886371da92db4171d02beb6efb90331bafb3ccead5a4c650f309e30f9679f6e0575adaca1",
+    "0xc2261276cc9d1f8598ea4b6a74b15c2fb99d880ec681799c0cf30e8886371da92e0c6bb8a8043818fed81d43cbfccef1e52945d7ea76a756853d751df85a310f",
+    "0xc2261276cc9d1f8598ea4b6a74b15c2fb99d880ec681799c0cf30e8886371da944c24ae5951c554dd2f9ddab567c8329a0437dc1fcb2bbe6188638f2a444b213",
+    "0xc2261276cc9d1f8598ea4b6a74b15c2fb99d880ec681799c0cf30e8886371da9459bb9dd7d9c431f9bb694489ee7519c115e59543162b2247e388a7b5c3383f3",
+    "0xc2261276cc9d1f8598ea4b6a74b15c2fb99d880ec681799c0cf30e8886371da947d1dffaaf7cee553b4dd7243d95d0005ae058afa8d1a628343fb6e2a7f9b699",
+    "0xc2261276cc9d1f8598ea4b6a74b15c2fb99d880ec681799c0cf30e8886371da9538abbf1b5788de238fb7f11fa9710dcc7d674ad67f22f18898a1284f41124c7",
+    "0xc2261276cc9d1f8598ea4b6a74b15c2fb99d880ec681799c0cf30e8886371da953c62bc7d2c8d3643682c50db52764ff50a6a0cf3ff217f6ae5791275c920910",
+    "0xc2261276cc9d1f8598ea4b6a74b15c2fb99d880ec681799c0cf30e8886371da963eae17575c33db0c60cc237ddaec18549205eb7ff15d58626fbc89862a4f1df",
+    "0xc2261276cc9d1f8598ea4b6a74b15c2fb99d880ec681799c0cf30e8886371da967f07444cddb95bfb10ef27bb24579970f0c3ae7f9eb25c82305286153dd2dd7",
+    "0xc2261276cc9d1f8598ea4b6a74b15c2fb99d880ec681799c0cf30e8886371da96dd3fcdc948150d600d2fd0443123db11a3d0c77e0966b59e4bcea72128b078a",
+    "0xc2261276cc9d1f8598ea4b6a74b15c2fb99d880ec681799c0cf30e8886371da97d5937a54039852568f951ff806cf2fb80376810d5dddd7aac5410c517e766cf",
+    "0xc2261276cc9d1f8598ea4b6a74b15c2fb99d880ec681799c0cf30e8886371da98f140d1e302b228e81f4f6e0cfea14b3ad6e43b1894b2f433e047fc15cbbe66a",
+    "0xc2261276cc9d1f8598ea4b6a74b15c2fb99d880ec681799c0cf30e8886371da9911c37ecf023e5b11c7ec47ecb01fccb1b642f126f8a547cf707c078a728cd13",
+    "0xc2261276cc9d1f8598ea4b6a74b15c2fb99d880ec681799c0cf30e8886371da991cf1990bff8d4fee051a14b80640acbc7023a3bb28a5624e861997c9e2e0785",
+    "0xc2261276cc9d1f8598ea4b6a74b15c2fb99d880ec681799c0cf30e8886371da997c543402c0452633c51c0ad3bf49c5d050d52bac16e447c712a9e32699dea73",
+    "0xc2261276cc9d1f8598ea4b6a74b15c2fb99d880ec681799c0cf30e8886371da999ddad41f9d074cd44acdad9735f9b9cbdc991d41948624e171a774a4a3d1dc0",
+    "0xc2261276cc9d1f8598ea4b6a74b15c2fb99d880ec681799c0cf30e8886371da9a72e4e6c1d148d5a2c4aa29928ddf00ee872e1dd3b2b12c370d1fa69d20095f1",
+    "0xc2261276cc9d1f8598ea4b6a74b15c2fb99d880ec681799c0cf30e8886371da9b9b7edf03df0659ad7526b6cbcb539b410edd1f29df43c81ba9f186a33b87975",
+    "0xc2261276cc9d1f8598ea4b6a74b15c2fb99d880ec681799c0cf30e8886371da9bd1e7e882ef909d84ab0c010b9736702ba564508928fa8f25e7858be3770bfee",
+    "0xc2261276cc9d1f8598ea4b6a74b15c2fb99d880ec681799c0cf30e8886371da9c4d5cb17009056a2b52e918a255c8a5a5e2f7465397c7809b6b9f032c5fe7bd4",
+    "0xc2261276cc9d1f8598ea4b6a74b15c2fb99d880ec681799c0cf30e8886371da9cf56908c3df0a90bb4fd5f4e7fd95f126ebd56177a44a8bf02d9aeaa1c291b27",
+    "0xc2261276cc9d1f8598ea4b6a74b15c2fb99d880ec681799c0cf30e8886371da9d991e84db986b531962879a34540fd9ee9edcc20e0eef6d65970772d70704ea7",
+    "0xc2261276cc9d1f8598ea4b6a74b15c2fb99d880ec681799c0cf30e8886371da9db53f0087eae0b111cb215c88cbc882cc83a962f76044bf0f5e68b8e9115f409",
+    "0xc2261276cc9d1f8598ea4b6a74b15c2fb99d880ec681799c0cf30e8886371da9dc3a5fc5c087699ca0ca85b9a7283cbceb29739e57a3ae933c4d3cd0c6739dce",
+    "0xc2261276cc9d1f8598ea4b6a74b15c2fb99d880ec681799c0cf30e8886371da9e02bd14c8e3e79b75c46dc914e457be28a0f1eb100d0cd49c86eefb160cf8e33",
+    "0xc2261276cc9d1f8598ea4b6a74b15c2fb99d880ec681799c0cf30e8886371da9e38596435133916ae1f7a40b240f268e2c37411f6c364890d6f07f568b56b452",
+    "0xc2261276cc9d1f8598ea4b6a74b15c2fb99d880ec681799c0cf30e8886371da9e47a04c91cfb988599962c83a74cb69324c8afb117501632cb27acb09d73af66",
+    "0xc2261276cc9d1f8598ea4b6a74b15c2fb99d880ec681799c0cf30e8886371da9e4e11d60e29322706c8c4cca13541da26614e3f9a8956145dd9240b20d325a48",
+    "0xc2261276cc9d1f8598ea4b6a74b15c2fb99d880ec681799c0cf30e8886371da9f150eb3066e8c0ec2f9d2d675f7b1144790be7cb61b8ee63cfd29f3167a5c686",
+    "0xc2261276cc9d1f8598ea4b6a74b15c2fb99d880ec681799c0cf30e8886371da9f78f5247353ec1db6953516a7217fd57dd9fcce9d7da448fc381a0622cc034bf",
+    "0xc2261276cc9d1f8598ea4b6a74b15c2fb99d880ec681799c0cf30e8886371da9f8aaeb445ddfcc4358be7cfd377d9f6c784dcefed0501d9d04488aca6ec09518",
+  ];
+
+  /*
+  const migrationBlock = 3139199;
+  console.log(xxhashAsHex('Balances', 128));
+  console.log(xxhashAsHex('Account', 128));
+  const prefix = xxhashAsHex('Balances', 128) + xxhashAsHex('Account', 128).slice(2);
+  const hash = await api.rpc.chain.getBlockHash(migrationBlock).pipe(first()).toPromise();
+  const premigrateKeys = await api.rpc.state.getKeys(prefix, hash).pipe(first()).toPromise();
+
+  // remove prefixes
+  const premigrateHashes = premigrateKeys.map((key) => u8aToHex(key).slice(34));
+
+  // verify all postmigrate hashes are found in the premigrate hashes
+  for (const post of postmigrateKeys) {
+    const accountHash = post.slice(34);
+    const idx = premigrateHashes.indexOf(accountHash);
+    if (idx === -1) {
+      console.log(`Could not find previous hash for ${post}!`);
+    }
   }
-  // const result = await api.rpc.state.getStorage<Option<any>>(key, hash).pipe(first()).toPromise();
-  // console.log(`Got value: ${result.isSome ? result.unwrap() : 'None'}`);
-  const result: any = await api.rpc.state.queryStorage([ key ], hash, endHash).pipe(first()).toPromise();
-  for (const [ hash, vals ] of result) {
+  return;*/
+
+  const results = [];
+  for (const k of keys) {
+    const blockNumber = await findStorageWriteBlock(api, k, 1, 3139199);
+    if (blockNumber !== -1) {
+      const hash = await api.rpc.chain.getBlockHash(blockNumber).pipe(first()).toPromise();
+      const block = await api.rpc.chain.getBlock(hash).pipe(first()).toPromise();
+      const xfer = block.block.extrinsics.find((e) => e.method.method.startsWith('transfer'));
+      if (xfer) {
+        const acct = xfer.args[0].toString();
+        results.push(acct);
+        const balance = await api.query.system.account(acct).pipe(first()).toPromise();
+        console.log(`Found transfer account: ${acct}: ${balance.data.free.toHuman()}`);
+      } else {
+        const extrinsics = block.block.extrinsics.toHuman(false);
+        console.log(`Extrinsics at ${blockNumber}: ${JSON.stringify(extrinsics, null, 2)}\n`);
+      }
+    }
+  }
+  // console.log(results.map((r) => r.toString()));
+  /*
+  console.log(`Querying keys at block ${block || 'latest'}.`);
+  
+  const startBlock = +block - 250;
+  const endBlock = +block;
+  const startHash = await api.rpc.chain.getBlockHash(startBlock).pipe(first()).toPromise();
+  const endHash = await api.rpc.chain.getBlockHash(endBlock).pipe(first()).toPromise();
+  
+  const storage = await api.rpc.state.getStorage<Option<any>>(key, endHash).pipe(first()).toPromise();
+  console.log(`Got value: ${storage.isSome ? JSON.stringify(api.createType('AccountData', storage.unwrap()), null, 2) : 'None'}`);
+
+  const updates: any = await api.rpc.state.queryStorage([ key ], startHash, endHash).pipe(first()).toPromise();
+  for (const [ hash, vals ] of updates) {
     const updatedBlock = await api.rpc.chain.getBlock(hash).pipe(first()).toPromise();
     const n = +updatedBlock.block.header.number;
     console.log(`Block ${n} (${hash}): ${vals.map((val) => (val as Option<any>).unwrapOr('None'))}`);
     const extrinsics = updatedBlock.block.extrinsics.toHuman(false);
     console.log(`Extrinsics: ${JSON.stringify(extrinsics, null, 2)}\n`);
   }
+  */
 }
 
 export const queryBalances = async (api: ApiRx) => {
